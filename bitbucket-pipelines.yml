@@ -1,0 +1,298 @@
+# enable Docker for your repository
+options:
+  docker: true
+
+definitions:
+  steps:
+    - step: &run-test
+        name: run-test
+        image: python:3.9.0
+        script:
+          - python3 --version
+    - step: &docker-build-push-and-deploy-cloudrun-prod
+        name: Build - Push - Deploy to GCP (gcr.io/extreme-arch-347212/chat_server) for Chat Server
+        image: google/cloud-sdk:latest
+        caches:
+          - docker
+        deployment: production
+        script:
+          # set CLOUDSDK_CONFIG environment variables
+          # - export CLOUDSDK_CONFIG=`pwd`/credentials/service-account.json
+          # - gcloud config list
+
+          # set image name
+          - export IMAGE_NAME='gcr.io/extreme-arch-347212/chat_server'
+          - export SERVICE_NAME='chat-server'
+          - export PROJECT_NAME='extreme-arch-347212'
+          - export PORT_VAR=8000
+
+          # Test Envioremental Values
+          # echo $IMAGE_NAME
+          # echo $SERVICE_NAME
+          - echo $PORT_VAR
+
+          # Build image
+          - docker build -t $IMAGE_NAME .
+
+          # Gcloud auth and check
+          - gcloud auth activate-service-account --key-file extreme-arch-ws.json
+          - gcloud config list
+
+          # config image registry with gcloud helper
+          - gcloud auth configure-docker -q
+
+          # push image to gcr
+          - docker push $IMAGE_NAME
+
+          # deploy to cloud run
+          - gcloud run deploy $SERVICE_NAME --image $IMAGE_NAME --region us-central1 --project $PROJECT_NAME --port $PORT_VAR
+
+          - echo "ALL DONE DEPLOYMENT HAS BEEN SUCCEDED"
+
+    - step: &docker-build-push-and-deploy-cloudrun
+        name: Build - Push - Deploy to GCP (gcr.io/extreme-arch-347212/chat_server) for Chat Server
+        image: google/cloud-sdk:latest
+        caches:
+          - docker
+        deployment: test
+        script:
+          # set CLOUDSDK_CONFIG environment variables
+          # - export CLOUDSDK_CONFIG=`pwd`/credentials/service-account.json
+          # - gcloud config list
+
+          # set image name
+          - export IMAGE_NAME='gcr.io/extreme-arch-347212/chat_server'
+          - export SERVICE_NAME='chat-server-dev'
+          - export PROJECT_NAME='extreme-arch-347212'
+          - export PORT_VAR=8000
+
+          # Test Envioremental Values
+          # echo $IMAGE_NAME
+          # echo $SERVICE_NAME
+          - echo $PORT_VAR
+
+          # Build image
+          - docker build -t $IMAGE_NAME --build-arg DJANGO_SETTINGS_MODULE=websocketserver.settings.cloud_run .
+
+          # Gcloud auth and check
+          - gcloud auth activate-service-account --key-file extreme-arch-ws.json
+          - gcloud config list
+
+          # config image registry with gcloud helper
+          - gcloud auth configure-docker -q
+
+          # push image to gcr
+          - docker push $IMAGE_NAME
+
+          # deploy to cloud run
+          - gcloud run deploy $SERVICE_NAME --image $IMAGE_NAME --region us-central1 --project $PROJECT_NAME --port $PORT_VAR
+
+          - echo "ALL DONE DEPLOYMENT HAS BEEN SUCCEDED"
+
+    - step: &build-chat-server-image
+        name: Build chat Server Docker image
+        image: adoptopenjdk/openjdk11:jre-11.0.9_11.1-alpine
+        script:
+          - apk add --no-cache openssh-client bash
+          - docker build -t chat-server --build-arg DJANGO_SETTINGS_MODULE=websocketserver.settings.cloud_run .
+          - docker save --output tmp-image.docker chat-server
+        artifacts:
+          - tmp-image.docker
+    
+    - step: &build-chat-server-image-prod
+        name: Build chat Server Docker image
+        image: adoptopenjdk/openjdk11:jre-11.0.9_11.1-alpine
+        script:
+          - apk add --no-cache openssh-client bash
+          - docker build -t chat-server .
+          - docker save --output tmp-image.docker chat-server
+        artifacts:
+          - tmp-image.docker
+
+    - step: &push-chat-server-image
+        name: Push chat Server Docker image to GCP Artifacts Registry
+        image: google/cloud-sdk:alpine
+        script:
+          - export GCLOUD_PROJECT='extreme-arch-347212'
+          - docker load --input ./tmp-image.docker
+          # Authenticating with the service account key file
+          - echo $GCLOUD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PROJECT
+          # Tag image & push
+          - export IMAGE_NAME=us-central1-docker.pkg.dev/extreme-arch-347212/chat-server/chat-server:$(echo $BITBUCKET_COMMIT | cut -c1-8)
+          - docker tag chat-server ${IMAGE_NAME}
+          # check if google artifacts repository exist. If not create
+          - gcloud artifacts repositories list|grep chat-server || gcloud artifacts repositories create chat-server --repository-format=docker --location=us-central1
+          # Login to google artifact registry
+          - gcloud auth configure-docker us-central1-docker.pkg.dev
+          - docker push ${IMAGE_NAME}
+          # Just to confirm the image tag
+          - echo "DOCKER_IMAGE_TAG=$(echo $BITBUCKET_COMMIT | cut -c1-8)" > latest_build_image_tag.sh
+          - cat latest_build_image_tag.sh
+
+    - step: &deploy-to-development-dry-run
+        name: Deploy to development server
+        script:
+          - export GCLOUD_PROJECT='extreme-arch-347212'
+          - export CLUSTER_NAME='game-server'
+          - export CLUSTER_ZONE=us-central1-a
+          # Just to confirm the image tag
+          - echo "DOCKER_IMAGE_TAG=$(echo $BITBUCKET_COMMIT | cut -c1-8)" > latest_build_image_tag.sh
+          - cat latest_build_image_tag.sh
+          - source $BITBUCKET_CLONE_DIR/gcloud.sh
+          # Downloading the Google Cloud SDK
+          - curl -o /tmp/google-cloud-sdk.tar.gz https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-388.0.0-linux-x86_64.tar.gz
+          - tar -xvf /tmp/google-cloud-sdk.tar.gz -C /tmp/
+          - /tmp/google-cloud-sdk/install.sh -q
+          - source /tmp/google-cloud-sdk/path.bash.inc
+          # Downloading the Helm
+          - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+          - helm version
+          # Authenticating with the service account key file
+          - echo $GCLOUD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PROJECT
+          - gcloud auth configure-docker
+          - gcloud container clusters get-credentials $CLUSTER_NAME --zone $CLUSTER_ZONE --project $GCLOUD_PROJECT
+          - helm upgrade 
+            --install
+            --namespace="development"
+            --set app.release_name="dev-chat-server"
+            --set app.name="chat-server"
+            --set app.replicaCount="1"
+            --set app.namespace="development"
+            --set app.container.env.port="8000"
+            --set app.container.env.settings_module="chatserver.settings.prod"
+            --set app.service.port="8000"
+            --set app.service.name="chat-server"
+            --set image.tag="$(echo $BITBUCKET_COMMIT | cut -c1-8)"
+            --set ingress.name="chat-server-ingress"
+            --set ingress.annotations.tls.acme="true"
+            --set ingress.namespace="development"
+            --set ingress.spec.rules.pathType="Prefix"
+            --set ingress.annotations.acme.http_edit_in_place="true"
+            --wait
+            --timeout 600s
+            --dry-run
+            chat-server-dev-release 
+            ./deployment/chat-server
+
+    - step: &deploy-to-development
+        name: Deploy to development server
+        script:
+          - export GCLOUD_PROJECT='extreme-arch-347212'
+          - export CLUSTER_NAME='game-server'
+          - export CLUSTER_ZONE=us-central1-a
+          # Just to confirm the image tag
+          - echo "DOCKER_IMAGE_TAG=$(echo $BITBUCKET_COMMIT | cut -c1-8)" > latest_build_image_tag.sh
+          - cat latest_build_image_tag.sh
+          - source $BITBUCKET_CLONE_DIR/gcloud.sh
+          # Downloading the Google Cloud SDK
+          - curl -o /tmp/google-cloud-sdk.tar.gz https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-388.0.0-linux-x86_64.tar.gz
+          - tar -xvf /tmp/google-cloud-sdk.tar.gz -C /tmp/
+          - /tmp/google-cloud-sdk/install.sh -q
+          - source /tmp/google-cloud-sdk/path.bash.inc
+          # Downloading the Helm
+          - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+          - helm version
+          # Authenticating with the service account key file
+          - echo $GCLOUD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PROJECT
+          - gcloud auth configure-docker
+          - gcloud container clusters get-credentials $CLUSTER_NAME --zone $CLUSTER_ZONE --project $GCLOUD_PROJECT
+          - helm upgrade 
+            --install
+            --namespace="development"
+            --set app.release_name="dev-chat-server"
+            --set app.name="chat-server"
+            --set app.replicaCount="1"
+            --set app.namespace="development"
+            --set app.container.env.port="8000"
+            --set app.container.env.settings_module="websocketserver.settings.prod"
+            --set app.service.port="8000"
+            --set app.service.name="chat-server"
+            --set image.tag="$(echo $BITBUCKET_COMMIT | cut -c1-8)"
+            --set ingress.name="chat-server-ingress"
+            --set ingress.annotations.tls.acme="true"
+            --set ingress.namespace="development"
+            --set ingress.spec.rules.pathType="Prefix"
+            --set ingress.annotations.acme.http_edit_in_place="true"
+            --wait
+            --timeout 600s
+            chat-server-dev-release 
+            ./deployment/chat-server
+
+    - step: &deploy-to-production
+        name: Deploy to Production server
+        script:
+          - export GCLOUD_PROJECT='extreme-arch-347212'
+          - export CLUSTER_NAME='game-server'
+          - export CLUSTER_ZONE=us-central1-a
+          # Just to confirm the image tag
+          - echo "DOCKER_IMAGE_TAG=$(echo $BITBUCKET_COMMIT | cut -c1-8)" > latest_build_image_tag.sh
+          - cat latest_build_image_tag.sh
+          - source $BITBUCKET_CLONE_DIR/gcloud.sh
+          # Downloading the Google Cloud SDK
+          - curl -o /tmp/google-cloud-sdk.tar.gz https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-388.0.0-linux-x86_64.tar.gz
+          - tar -xvf /tmp/google-cloud-sdk.tar.gz -C /tmp/
+          - /tmp/google-cloud-sdk/install.sh -q
+          - source /tmp/google-cloud-sdk/path.bash.inc
+          # Downloading the Helm
+          - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+          - helm version
+          # Authenticating with the service account key file
+          - echo $GCLOUD_API_KEYFILE | base64 -d > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+          - gcloud config set project $GCLOUD_PROJECT
+          - gcloud auth configure-docker
+          - gcloud container clusters get-credentials $CLUSTER_NAME --zone $CLUSTER_ZONE --project $GCLOUD_PROJECT
+          - helm upgrade 
+            --install
+            --namespace="production"
+            --set app.release_name="prod-chat-server"
+            --set app.name="chat-server"
+            --set app.replicaCount="1"
+            --set app.namespace="production"
+            --set app.container.env.port="8000"
+            --set app.container.env.settings_module="websocketserver.settings.prod"
+            --set app.service.port="8000"
+            --set app.service.name="chat-server"
+            --set image.tag="$(echo $BITBUCKET_COMMIT | cut -c1-8)"
+            --set ingress.name="chat-server-ingress"
+            --set ingress.annotations.tls.acme="true"
+            --set ingress.namespace="production"
+            --set ingress.spec.rules.pathType="Prefix"
+            --set ingress.annotations.acme.http_edit_in_place="true"
+            --wait
+            --timeout 600s
+            chat-server-prod-release 
+            ./deployment/chat-server
+
+pipelines:
+  tags:
+    v*:
+      - step: *build-chat-server-image
+      - step: *push-chat-server-image
+      - step: *docker-build-push-and-deploy-cloudrun
+
+  default:
+    - step: *run-test
+    - step: *build-chat-server-image
+    - step: *push-chat-server-image
+    - step: *deploy-to-development-dry-run
+    - step: *deploy-to-development
+
+  branches:
+    master:
+      - step: *docker-build-push-and-deploy-cloudrun-prod
+      - step: *build-chat-server-image-prod
+      - step: *push-chat-server-image
+      - step: *deploy-to-production
+    development:
+      - step: *docker-build-push-and-deploy-cloudrun
+      - step: *build-chat-server-image
+      - step: *push-chat-server-image
+      - step: *deploy-to-development
+

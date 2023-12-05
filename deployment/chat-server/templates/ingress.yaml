@@ -1,0 +1,28 @@
+{{- $serviceName := .Values.app.service.name -}}
+{{- $servicePort := .Values.app.service.port -}}
+{{- $paths := .Values.ingress.paths -}}
+{{- $pathType := .Values.ingress.spec.rules.pathType -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.ingress.name }}
+  namespace: {{ .Values.app.namespace }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Values.app.release_name }}
+    meta.helm.sh/release-namespace: {{ .Values.app.namespace }}
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.allow-http: "true"
+    kubernetes.io/ingress.global-static-ip-name: "chat-server-ingress"
+spec:
+  rules:
+     - http:
+        paths:
+        {{- range $p := $paths }}
+          - path: {{ $p }}
+            pathType: {{ $pathType }}
+            backend:
+              service:
+                 name: {{ $serviceName }}
+                 port: 
+                   number: {{ $servicePort }}
+        {{- end }}

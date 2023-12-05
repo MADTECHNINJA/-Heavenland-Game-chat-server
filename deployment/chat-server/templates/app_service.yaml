@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.app.service.name }}
+  namespace: {{ .Values.app.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+    group: {{ .Values.app.group }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Values.app.release_name }}
+    meta.helm.sh/release-namespace: {{ .Values.app.namespace }}
+    cloud.google.com/backend-config: '{"ports": {"8000":"chat-server-backendconfig"}}'
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  type: {{ .Values.app.service.type }}
+  selector:
+    app: {{ .Values.app.name }}
+  ports:
+    - port: {{ .Values.app.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http

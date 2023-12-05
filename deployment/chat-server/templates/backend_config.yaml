@@ -1,0 +1,16 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ .Values.backendconfig.name }}
+  namespace: {{ .Values.app.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: "Helm"
+    group: {{ .Values.app.group }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Values.app.release_name }}
+    meta.helm.sh/release-namespace: {{ .Values.app.namespace }}
+spec:
+spec:
+  timeoutSec: {{ .Values.backendconfig.timeoutSec }}
+  connectionDraining:
+    drainingTimeoutSec: {{ .Values.backendconfig.drainingTimeoutSec }}

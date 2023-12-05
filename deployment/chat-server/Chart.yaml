@@ -1,0 +1,9 @@
+apiVersion: v2
+name: chat-server
+description: A Helm chart for Kubernetes to deploy Chat Server for Heavenland
+
+type: application
+
+version: 0.1.0
+
+appVersion: '1.16.0'
